@@ -15,8 +15,18 @@ The "TechZone" project seeks to resolve the fragmentation of commercial informat
 ![Power BI](https://img.shields.io/badge/Power_BI-F2C811?style=for-the-badge&logo=power-bi&logoColor=black)
 ![Excel](https://img.shields.io/badge/Microsoft_Excel-217346?style=for-the-badge&logo=microsoft-excel&logoColor=white)
 
-## Diagram of the initial database
+## 🗄️ Database Design
+
+### Initial Diagram
+The tables and their respective attributes were developed in the first stage:
 
 <div align="center">
-<img src="docs/TechZone.jpg" alt="Database Diagram" width="600px">
+  <img src="docs/TechZone_version_1.jpg" alt="Initial Database Diagram" width="600px">
+</div>
+
+### Final Diagram
+*This section will be updated with the final version of the relational model after the optimization phase.*
+
+<div align="center">
+  <img src="https://via.placeholder.com/600x300?text=Final+Diagram+In+Progress" alt="Database Final Diagram" width="600px">
 </div>
