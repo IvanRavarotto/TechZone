@@ -60,7 +60,7 @@ The project culminates in a Power BI Dashboard connected directly to the MySQL d
     * Metric: Count of units sold (purchase_quantity) per product_name.
     * Purpose: Visualizes the most popular items in the inventory, aiding in stock management decisions.
 
-![Dashboard Preview](dashboard/dashboard_screenshot.jpg)
+![Dashboard Preview](dashboard/dashboard_screenshot.JPG)
 
 Note: The .pbix source file is available in the dashboard/ folder.
 
