@@ -1,89 +1,87 @@
 """
-Script: load_products.py
-Description: ETL (Extract, Transform, Load) process to ingest product data.
-             - Reads raw CSV data.
-             - Normalizes column names.
-             - Loads data into MySQL database securely.
-Author: Ivan Ravarotto
-Date: 2026-02-14
+=====================================================================================
+Proyecto: TechZone - End-to-End Data Engineering Pipeline
+Módulo: etl_scripts/load_products.py
+Autor: Iván Ravarotto
+Descripción: Módulo que contiene la lógica específica del proceso ETL.
+             Destaca la implementación de Idempotencia (Upsert seguro) mediante el
+             uso de tablas staging (temporales) en memoria y consultas SQL puras.
+=====================================================================================
 """
 
 import os
 import pandas as pd
-from sqlalchemy import create_engine
+import logging
 from datetime import datetime
-from urllib.parse import quote_plus  # <--- CRITICAL: Handles special characters in passwords 🔑
+from sqlalchemy import text
 
-# =========================================
-# 1. CONFIGURATION & CREDENTIALS
-# =========================================
-DB_USER = "root"
-DB_PASSWORD_RAW = "Rava-2026@-24" 
-DB_HOST = "localhost"
-DB_NAME = "TechZone"
+logger = logging.getLogger(__name__)
 
-# --- PASSWORD ENCODING ---
-# We use quote_plus to URL-encode the password. 
-# This ensures that special characters (like '@') are interpreted correctly 
-# by the connection string and don't break the syntax.
-db_password_encoded = quote_plus(DB_PASSWORD_RAW)
-
-# --- CONNECTION STRING BUILDER ---
-print("🔌 Connecting to the database...")
-# Format: mysql+driver://user:password@host/database
-connection_string = f"mysql+mysqlconnector://{DB_USER}:{db_password_encoded}@{DB_HOST}/{DB_NAME}"
-
-try:
-    # Create the SQLAlchemy engine (the bridge to MySQL)
-    engine = create_engine(connection_string)
-    
-    # Quick connection health check
-    with engine.connect() as connection:
-        print("✅ Connection to database successful!")
-
-    # =========================================
-    # 2. EXTRACTION (Read Data)
-    # =========================================
-    print(f"📍 Current directory: {os.getcwd()}")
-    
-    # We construct the path dynamically using os.path.join.
-    # This ensures the script works on both Windows ('\') and Mac/Linux ('/') without errors.
-    file_path = os.path.join(os.getcwd(), "data_raw", "products.csv")
-
-    print(f"📂 Searching for file in: {file_path}")
-
-    # Validation: Check if file exists before trying to read it
+def extract_data(file_path):
+    """Extrae los datos crudos desde un archivo CSV hacia un DataFrame de Pandas."""
+    logger.info(f"📂 Extrayendo datos de: {file_path}")
     if not os.path.exists(file_path):
-        print(f"⚠️ File not found. Files visible in 'data_raw': {os.listdir(os.path.join(os.getcwd(), 'data_raw'))}")
-        raise FileNotFoundError("Check that the filename is exactly: 'products.csv'")
-
-    # Read the CSV file into a Pandas DataFrame
-    df = pd.read_csv(file_path)
+        logger.error("⚠️ Archivo no encontrado.")
+        raise FileNotFoundError(f"Revisa que el archivo exista en la ruta: {file_path}")
     
-    # =========================================
-    # 3. TRANSFORMATION (Clean & Prepare)
-    # =========================================
-    # Best Practice: Remove potential whitespace from column headers
-    df.columns = df.columns.str.strip()
+    df = pd.read_csv(file_path)
+    logger.info(f"✅ Se extrajeron {len(df)} filas del archivo fuente.")
+    return df
 
-    # Add audit timestamp if it doesn't exist in the source file
+def transform_data(df):
+    """Aplica limpieza de datos y añade columnas de auditoría necesarias."""
+    logger.info("⚙️ Transformando y limpiando datos...")
+    
+    # Eliminación de espacios en blanco en los nombres de las columnas
+    df.columns = df.columns.str.strip()
+    
+    # Inyección de marca de tiempo para auditoría de inserción
     if 'product_datetime' not in df.columns:
         df['product_datetime'] = datetime.now()
+        
+    logger.info("✅ Transformación completada.")
+    return df
 
-    # =========================================
-    # 4. LOAD (Write to Database)
-    # =========================================
-    print(f"📊 Loading {len(df)} products to MySQL...")
-    
-    # to_sql parameters:
-    # - name: Target table name in MySQL
-    # - if_exists='append': Adds new rows without deleting the table (safe mode)
-    # - index=False: Prevents Pandas from uploading the DataFrame index as a separate column
-    df.to_sql('product', con=engine, if_exists='append', index=False)
-    
-    print("🚀 Mission accomplished! Data successfully inserted into 'product' table.")
-
-except Exception as e:
-    # Error handling to provide clear feedback
-    print(f"\n❌ FATAL ERROR: {e}")
-    print("Tip: If the error is 'Access denied', verify your password in MySQL Workbench.")
+def load_data(df, engine):
+    """
+    Carga los datos procesados a MySQL utilizando una estrategia UPSERT en 2 fases
+    (Staging -> Update -> Insert -> Drop) para evitar la duplicación de registros.
+    """
+    logger.info(f"📊 Cargando {len(df)} productos a MySQL con lógica UPSERT...")
+    try:
+        # engine.begin() maneja automáticamente el COMMIT o ROLLBACK en caso de error
+        with engine.begin() as conn:
+            
+            # 1. Crear tabla temporal (Staging) y volcar los datos de Pandas
+            logger.info("⏳ Creando tabla temporal (staging)...")
+            df.to_sql('product_staging', con=conn, if_exists='replace', index=False)
+            
+            logger.info("🔄 Ejecutando Upsert seguro...")
+            
+            # Paso 2A: Actualizar los productos que YA EXISTEN (match por product_name)
+            update_query = text("""
+                UPDATE PRODUCT p
+                INNER JOIN product_staging s ON p.product_name = s.product_name
+                SET p.product_price = s.product_price,
+                    p.product_stock = s.product_stock,
+                    p.product_datetime = s.product_datetime;
+            """)
+            conn.execute(update_query)
+            
+            # Paso 2B: Insertar SOLAMENTE los productos NUEVOS (los que no están en la BD)
+            insert_query = text("""
+                INSERT INTO PRODUCT (product_name, product_price, product_stock, product_datetime)
+                SELECT s.product_name, s.product_price, s.product_stock, s.product_datetime
+                FROM product_staging s
+                WHERE s.product_name NOT IN (SELECT product_name FROM PRODUCT);
+            """)
+            conn.execute(insert_query)
+            
+            # 3. Borrar la tabla temporal para mantener limpia la base de datos
+            logger.info("🧹 Eliminando tabla temporal...")
+            conn.execute(text("DROP TABLE product_staging;"))
+            
+        logger.info("🚀 ¡Misión cumplida! Datos procesados correctamente sin duplicados.")
+    except Exception as e:
+        logger.error(f"❌ Fallo crítico al cargar a la BD: {e}")
+        raise

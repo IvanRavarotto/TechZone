@@ -1,0 +1,32 @@
+# =========================================
+# Entornos Virtuales (¡Muy pesado!)
+# =========================================
+.venv/
+venv/
+env/
+
+# =========================================
+# Variables de Entorno y Secretos (¡CRÍTICO!)
+# =========================================
+.env
+
+# =========================================
+# Archivos de Log y Caché (Basura de ejecución)
+# =========================================
+*.log
+etl_process.log
+__pycache__/
+*.py[cod]
+*$py.class
+
+# =========================================
+# Archivos del Sistema Operativo
+# =========================================
+.DS_Store
+Thumbs.db
+
+# =========================================
+# Configuraciones de IDE y Extensiones IA
+# =========================================
+.vscode/
+.continue/
